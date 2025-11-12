@@ -29,7 +29,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
+        python-version: '3.11'
 
     - name: Install dependencies
       run: |
@@ -38,10 +38,12 @@ jobs:
         # Install Flyway
         wget -qO- https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.0/flyway-commandline-9.22.0-linux-x64.tar.gz | tar xvz
         sudo ln -s $PWD/flyway-9.22.0/flyway /usr/local/bin/flyway
+        # Install MySQL client
+        sudo apt-get update
+        sudo apt-get install -y mysql-client
 
     - name: Wait for MySQL
       run: |
-        sudo apt-get install -y mysql-client
         while ! mysqladmin ping -h"127.0.0.1" -P3306 -u"root" -p"rootpassword" --silent; do
           sleep 1
         done
@@ -69,9 +71,10 @@ jobs:
 
     - name: Run automated tests
       run: |
-        pytest tests/ -v
+        python -m pytest tests/ -v
 
-    - name: Print deployment success
+    - name: Verify deployment
       run: |
-        echo "Deployment done for commit ${{ github.sha }}"
-        echo "All migrations and tests completed successfully!"
+        echo "✅ Deployment successful for commit $GITHUB_SHA"
+        echo "📊 Final database status:"
+        mysql -h 127.0.0.1 -P 3306 -u app_user -papp_password -e "USE subscribers_db; SHOW TABLES; SELECT COUNT(*) as total_subscribers FROM subscribers;"

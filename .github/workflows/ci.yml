@@ -1,0 +1,77 @@
+name: Database CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-database-migrations:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: subscribers_db
+          MYSQL_USER: app_user
+          MYSQL_PASSWORD: app_password
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # Install Flyway
+        wget -qO- https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.0/flyway-commandline-9.22.0-linux-x64.tar.gz | tar xvz
+        sudo ln -s $PWD/flyway-9.22.0/flyway /usr/local/bin/flyway
+
+    - name: Wait for MySQL
+      run: |
+        sudo apt-get install -y mysql-client
+        while ! mysqladmin ping -h"127.0.0.1" -P3306 -u"root" -p"rootpassword" --silent; do
+          sleep 1
+        done
+
+    - name: Create Flyway user
+      run: |
+        mysql -h 127.0.0.1 -P 3306 -u root -prootpassword -e "
+        CREATE USER IF NOT EXISTS 'flyway_user'@'%' IDENTIFIED BY 'flyway_password';
+        GRANT ALL PRIVILEGES ON subscribers_db.* TO 'flyway_user'@'%';
+        FLUSH PRIVILEGES;"
+
+    - name: Run initial migrations
+      run: |
+        flyway -url=jdbc:mysql://127.0.0.1:3306/subscribers_db \
+               -user=flyway_user -password=flyway_password \
+               -locations=filesystem:flyway/migrations_initial \
+               migrate
+
+    - name: Run incremental migrations
+      run: |
+        flyway -url=jdbc:mysql://127.0.0.1:3306/subscribers_db \
+               -user=flyway_user -password=flyway_password \
+               -locations=filesystem:flyway/migrations_incremental \
+               migrate
+
+    - name: Run automated tests
+      run: |
+        pytest tests/ -v
+
+    - name: Print deployment success
+      run: |
+        echo "Deployment done for commit ${{ github.sha }}"
+        echo "All migrations and tests completed successfully!"

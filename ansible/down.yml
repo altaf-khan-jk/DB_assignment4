@@ -1,0 +1,10 @@
+---
+- name: Teardown MySQL environment
+  hosts: localhost
+  connection: local
+
+  tasks:
+    - name: Remove MySQL container
+      docker_container:
+        name: mysql_db
+        state: absent
